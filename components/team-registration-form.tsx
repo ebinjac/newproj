@@ -72,24 +72,27 @@ export function TeamRegistrationForm() {
           ...data,
           requestedBy: "current-user", // This should be replaced with actual user info
         }),
-      })
+      });
 
       if (!response.ok) {
-        throw new Error("Failed to submit team registration")
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Failed to submit team registration");
       }
+
+      const team = await response.json();
 
       toast({
         title: "Registration submitted",
         description: "Your team registration request has been submitted for approval.",
-      })
+      });
 
-      router.push("/team/pending")
+      router.push("/team/pending");
     } catch (error) {
       toast({
         title: "Error",
-        description: "There was a problem submitting your registration.",
+        description: error instanceof Error ? error.message : "There was a problem submitting your registration.",
         variant: "destructive",
-      })
+      });
     }
   }
 
