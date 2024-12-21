@@ -68,7 +68,7 @@ export function TeamSwitcher() {
           setSelectedTeam(currentTeam)
         })
         .catch(error => {
-          console.error('Failed to fetch teams:', error)
+          console.error('Failed to fetch teams:', DATABASE_URL="file:./dev.db"error)
         })
     }
   }, [user, params?.teamId])
