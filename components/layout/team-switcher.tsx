@@ -35,6 +35,8 @@ type Team = {
   slug: string
   teamName: string
   prcGroup: string
+  image?: string
+  members?: number
 }
 
 export function TeamSwitcher() {
@@ -68,7 +70,7 @@ export function TeamSwitcher() {
           setSelectedTeam(currentTeam)
         })
         .catch(error => {
-          console.error('Failed to fetch teams:', DATABASE_URL="file:./dev.db"error)
+          console.error('Failed to fetch teams:', error)
         })
     }
   }, [user, params?.teamId])
@@ -113,16 +115,40 @@ export function TeamSwitcher() {
           role="combobox"
           aria-expanded={open}
           aria-label="Select a team"
-          className="w-[200px] justify-between"
+          className={cn(
+            "w-[240px] justify-between hover:bg-accent",
+            !selectedTeam && "text-muted-foreground"
+          )}
         >
-          {selectedTeam?.teamName || "Select team"}
+          {selectedTeam ? (
+            <>
+              <div className="flex items-center gap-2">
+                <div className="flex h-5 w-5 items-center justify-center rounded-md border border-gray-200 bg-gray-50">
+                  {selectedTeam.image ? (
+                    <img
+                      src={selectedTeam.image}
+                      alt={selectedTeam.teamName}
+                      className="h-4 w-4 rounded"
+                    />
+                  ) : (
+                    <span className="text-xs font-medium">
+                      {selectedTeam.teamName.charAt(0).toUpperCase()}
+                    </span>
+                  )}
+                </div>
+                <span className="truncate">{selectedTeam.teamName}</span>
+              </div>
+            </>
+          ) : (
+            "Select team"
+          )}
           <CaretSortIcon className="ml-auto h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-[200px] p-0">
+      <PopoverContent className="w-[240px] p-0" align="start">
         <Command>
           <CommandList>
-            <CommandInput placeholder="Search team..." />
+            <CommandInput placeholder="Search team..." className="h-9" />
             <CommandEmpty>No team found.</CommandEmpty>
             <CommandGroup heading="Teams">
               {teams.map((team) => (
@@ -131,18 +157,38 @@ export function TeamSwitcher() {
                   onSelect={() => handleTeamSelect(team)}
                   className="text-sm"
                 >
-                  <span className="flex-grow">{team.teamName}</span>
-                  <div className="ml-auto flex items-center">
-                    {selectedTeam?.id === team.id && (
-                      <CheckIcon className="h-4 w-4 mr-2" />
-                    )}
-                    <Link 
-                      href={`/teams/${team.slug}/settings`}
-                      onClick={(e) => e.stopPropagation()}
-                      className="opacity-50 hover:opacity-100"
-                    >
-                      <GearIcon className="h-4 w-4" />
-                    </Link>
+                  <div className="flex items-center gap-2 flex-1">
+                    <div className="flex h-5 w-5 items-center justify-center rounded-md border border-gray-200 bg-gray-50">
+                      {team.image ? (
+                        <img
+                          src={team.image}
+                          alt={team.teamName}
+                          className="h-4 w-4 rounded"
+                        />
+                      ) : (
+                        <span className="text-xs font-medium">
+                          {team.teamName.charAt(0).toUpperCase()}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex flex-col flex-1">
+                      <span className="truncate">{team.teamName}</span>
+                      <span className="text-xs text-muted-foreground">
+                        {team.members || 0} members
+                      </span>
+                    </div>
+                    <div className="ml-auto flex items-center gap-2">
+                      {selectedTeam?.id === team.id && (
+                        <CheckIcon className="h-4 w-4" />
+                      )}
+                      <Link
+                        href={`/teams/${team.slug}/settings`}
+                        onClick={(e) => e.stopPropagation()}
+                        className="opacity-50 hover:opacity-100 transition-opacity"
+                      >
+                        <GearIcon className="h-4 w-4" />
+                      </Link>
+                    </div>
                   </div>
                 </CommandItem>
               ))}
@@ -151,10 +197,11 @@ export function TeamSwitcher() {
           <CommandSeparator />
           <CommandList>
             <CommandGroup>
-              <Link href="/teams/register">
-                <CommandItem className="cursor-pointer">
-                  <PlusCircledIcon className="mr-2 h-5 w-5" />
-                  Create Team
+              <Link href="/teams/register" className="block">
+                <CommandItem className="cursor-pointer text-sm">
+                  <PlusCircledIcon className="mr-2 h-4 w-4" />
+                  Create New Team
+                  <span className="ml-auto text-xs text-muted-foreground">⌘+N</span>
                 </CommandItem>
               </Link>
             </CommandGroup>
