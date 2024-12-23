@@ -1,0 +1,471 @@
+// lib/validations/application.ts
+import { z } from 'zod';
+
+export const ApplicationSchema = z.object({
+  name: z.string()
+    .min(2, 'Name must be at least 2 characters')
+    .max(255, 'Name must be less than 255 characters'),
+  carId: z.string()
+    .min(3, 'CAR ID must be at least 3 characters')
+    .max(50, 'CAR ID must be less than 50 characters'),
+  director: z.string()
+    .min(2, 'Director name is required')
+    .max(255, 'Director name must be less than 255 characters'),
+  engineeringDirector: z.string()
+    .min(2, 'Engineering Director name is required')
+    .max(255, 'Engineering Director name must be less than 255 characters'),
+  snowGroup: z.string()
+    .min(2, 'Snow group is required')
+    .max(255, 'Snow group must be less than 255 characters'),
+  contactEmail: z.string()
+    .email('Invalid email address'),
+  description: z.string()
+    .min(10, 'Description must be at least 10 characters')
+    .max(1000, 'Description must be less than 1000 characters')
+    .optional()
+    .nullable(),
+  teamId: z.string().uuid('Invalid team ID'),
+});
+
+export type ApplicationFormData = z.infer<typeof ApplicationSchema>;
+
+// lib/types/car.ts
+export interface CarDetails {
+  carId: string;
+  name: string;
+  director: string;
+  engineeringDirector: string;
+  snowGroup: string;
+  contactEmail: string;
+}
+
+// app/api/car-lookup/route.ts
+import { NextResponse } from 'next/server';
+
+export async function GET(request: Request) {
+  const { searchParams } = new URL(request.url);
+  const carId = searchParams.get('carId');
+
+  if (!carId) {
+    return NextResponse.json(
+      { error: 'CAR ID is required' },
+      { status: 400 }
+    );
+  }
+
+  try {
+    // Replace this with your actual CAR ID lookup API call
+    const response = await fetch(`YOUR_CAR_API_ENDPOINT/${carId}`, {
+      headers: {
+        'Authorization': `Bearer ${process.env.CAR_API_TOKEN}`
+      }
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to fetch CAR details');
+    }
+
+    const data = await response.json();
+    return NextResponse.json(data);
+  } catch (error) {
+    console.error('Error looking up CAR ID:', error);
+    return NextResponse.json(
+      { error: 'Failed to lookup CAR ID' },
+      { status: 500 }
+    );
+  }
+}
+
+// app/actions/application.ts
+'use server'
+
+import { db } from '@/db';
+import { applications } from '@/db/schema';
+import { ApplicationSchema } from '@/lib/validations/application';
+import { revalidatePath } from 'next/cache';
+import type { ActionState } from '@/lib/types/action';
+
+export async function createApplication(
+  prevState: ActionState<{ id: string }> | null,
+  formData: FormData
+): Promise<ActionState<{ id: string }>> {
+  try {
+    const rawData = {
+      name: formData.get('name'),
+      carId: formData.get('carId'),
+      director: formData.get('director'),
+      engineeringDirector: formData.get('engineeringDirector'),
+      snowGroup: formData.get('snowGroup'),
+      contactEmail: formData.get('contactEmail'),
+      description: formData.get('description'),
+      teamId: formData.get('teamId'),
+    };
+
+    const validatedData = ApplicationSchema.safeParse(rawData);
+
+    if (!validatedData.success) {
+      return {
+        error: {
+          message: 'Validation failed',
+          errors: validatedData.error.flatten().fieldErrors,
+        },
+      };
+    }
+
+    const result = await db.insert(applications).values({
+      ...validatedData.data,
+      createdBy: 'user-id', // Replace with actual user ID from auth
+      updatedBy: 'user-id', // Replace with actual user ID from auth
+    }).returning({ id: applications.id });
+
+    revalidatePath('/applications');
+    
+    return {
+      data: {
+        id: result[0].id,
+      },
+    };
+  } catch (error) {
+    console.error('Error creating application:', error);
+    return {
+      error: {
+        message: 'Failed to create application. Please try again later.',
+      },
+    };
+  }
+}
+
+// components/CarLookup.tsx
+'use client';
+
+import { useState } from 'react';
+import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
+import { Loader2 } from 'lucide-react';
+import type { CarDetails } from '@/lib/types/car';
+
+interface CarLookupProps {
+  onCarFound: (details: CarDetails) => void;
+  disabled?: boolean;
+}
+
+export function CarLookup({ onCarFound, disabled }: CarLookupProps) {
+  const [carId, setCarId] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleLookup = async () => {
+    setIsLoading(true);
+    setError(null);
+
+    try {
+      const response = await fetch(`/api/car-lookup?carId=${encodeURIComponent(carId)}`);
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to lookup CAR ID');
+      }
+
+      onCarFound(data);
+      setCarId('');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to lookup CAR ID');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  return (
+    <div className="space-y-2">
+      <div className="flex gap-2">
+        <Input
+          value={carId}
+          onChange={(e) => setCarId(e.target.value)}
+          placeholder="Enter CAR ID"
+          disabled={disabled || isLoading}
+        />
+        <Button
+          onClick={handleLookup}
+          disabled={!carId || disabled || isLoading}
+        >
+          {isLoading ? (
+            <>
+              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              Looking up...
+            </>
+          ) : (
+            'Lookup'
+          )}
+        </Button>
+      </div>
+      {error && (
+        <p className="text-sm text-red-500">{error}</p>
+      )}
+    </div>
+  );
+}
+
+// app/applications/create/page.tsx
+'use client';
+
+import { zodResolver } from '@hookform/resolvers/zod';
+import { useForm } from 'react-hook-form';
+import { useRouter } from 'next/navigation';
+import { experimental_useFormStatus as useFormStatus, experimental_useFormState as useFormState } from 'react-dom';
+import type { ApplicationFormData } from '@/lib/validations/application';
+import { ApplicationSchema } from '@/lib/validations/application';
+import { createApplication } from '@/app/actions/application';
+import { CarLookup } from '@/components/CarLookup';
+import type { CarDetails } from '@/lib/types/car';
+
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from '@/components/ui/form';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
+import { Button } from '@/components/ui/button';
+import {
+  Card,
+  CardHeader,
+  CardTitle,
+  CardDescription,
+  CardContent,
+  CardFooter,
+} from '@/components/ui/card';
+import { toast } from '@/components/ui/use-toast';
+
+const initialState = { message: null, errors: {} };
+
+export default function CreateApplicationPage() {
+  const router = useRouter();
+  const { pending } = useFormStatus();
+  const [state, formAction] = useFormState(createApplication, initialState);
+
+  const form = useForm<ApplicationFormData>({
+    resolver: zodResolver(ApplicationSchema),
+    defaultValues: {
+      name: '',
+      carId: '',
+      director: '',
+      engineeringDirector: '',
+      snowGroup: '',
+      contactEmail: '',
+      description: '',
+      teamId: '', // Should be populated based on context/selection
+    },
+  });
+
+  const handleCarFound = (details: CarDetails) => {
+    form.setValue('name', details.name);
+    form.setValue('carId', details.carId);
+    form.setValue('director', details.director);
+    form.setValue('engineeringDirector', details.engineeringDirector);
+    form.setValue('snowGroup', details.snowGroup);
+    form.setValue('contactEmail', details.contactEmail);
+  };
+
+  async function onSubmit(data: ApplicationFormData) {
+    const formData = new FormData();
+    Object.entries(data).forEach(([key, value]) => {
+      if (value) formData.append(key, value);
+    });
+
+    const result = await formAction(formData);
+
+    if (result?.error) {
+      if (result.error.errors) {
+        Object.entries(result.error.errors).forEach(([field, messages]) => {
+          form.setError(field as keyof ApplicationFormData, {
+            message: messages[0],
+          });
+        });
+      } else {
+        toast({
+          title: 'Error',
+          description: result.error.message,
+          variant: 'destructive',
+        });
+      }
+      return;
+    }
+
+    if (result?.data) {
+      toast({
+        title: 'Success',
+        description: 'Application created successfully!',
+      });
+      router.push(`/applications/${result.data.id}`);
+    }
+  }
+
+  return (
+    <div className="container max-w-2xl py-10">
+      <Card>
+        <CardHeader>
+          <CardTitle>Create Application</CardTitle>
+          <CardDescription>
+            Create a new application by entering details or looking up a CAR ID.
+          </CardDescription>
+        </CardHeader>
+        <Form {...form}>
+          <form action={formAction}>
+            <CardContent className="space-y-6">
+              <div className="space-y-2">
+                <FormLabel>CAR ID Lookup</FormLabel>
+                <CarLookup 
+                  onCarFound={handleCarFound}
+                  disabled={pending}
+                />
+              </div>
+
+              <FormField
+                control={form.control}
+                name="name"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Application Name</FormLabel>
+                    <FormControl>
+                      <Input 
+                        placeholder="Enter application name" 
+                        {...field} 
+                        disabled={pending}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="carId"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>CAR ID</FormLabel>
+                    <FormControl>
+                      <Input 
+                        placeholder="Enter CAR ID" 
+                        {...field} 
+                        disabled={pending}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="director"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Director</FormLabel>
+                    <FormControl>
+                      <Input 
+                        placeholder="Enter director name" 
+                        {...field} 
+                        disabled={pending}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="engineeringDirector"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Engineering Director</FormLabel>
+                    <FormControl>
+                      <Input 
+                        placeholder="Enter engineering director name" 
+                        {...field} 
+                        disabled={pending}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="snowGroup"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Snow Group</FormLabel>
+                    <FormControl>
+                      <Input 
+                        placeholder="Enter snow group" 
+                        {...field} 
+                        disabled={pending}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="contactEmail"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Contact Email</FormLabel>
+                    <FormControl>
+                      <Input 
+                        type="email"
+                        placeholder="Enter contact email" 
+                        {...field} 
+                        disabled={pending}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <FormField
+                control={form.control}
+                name="description"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Description</FormLabel>
+                    <FormControl>
+                      <Textarea 
+                        placeholder="Enter application description (optional)" 
+                        {...field} 
+                        disabled={pending}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+            </CardContent>
+            <CardFooter className="flex justify-end space-x-4">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => router.back()}
+                disabled={pending}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" disabled={pending}>
+                {pending ? 'Creating...' : 'Create Application'}
+              </Button>
+            </CardFooter>
+          </form>
+        </Form>
+      </Card>
+    </div>
+  );
+}
